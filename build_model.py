@@ -3,26 +3,30 @@ import math
 import pandas as pd
 import numpy as np
 from sklearn.cross_validation import train_test_split
+from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import LabelEncoder
 
 le = LabelEncoder();
 
 df = pd.read_csv('./train_shuf.csv', header=0);
-df['label'] = le.fit_transform(df['target']);
+df = df.drop(['id'], axis=1);
+df['target'] = le.fit_transform(df['target']);
+ohe = OneHotEncoder(handle_unknown='ignore', categorical_features=[1 if col not in ['target'] else 0 for col in df.columns]);
+ohe.fit(df);
+
 train, val = train_test_split(df, test_size=0.3);
 
-train_y = train.label;
-train_x = train.drop(['label', 'target', 'id'], axis=1);
+train_y = train.target;
+train_x = train.drop(['target'], axis=1);
+train_x = ohe.transform(train_x);
 
-val_y = val.label;
-val_x = val.drop(['label', 'target', 'id'], axis=1);
-
-xgb_train = xgb.DMatrix(train_x, label=train_y);
-xgb_val = xgb.DMatrix(val_x, label=val_y);
+val_y = val.target;
+val_x = val.drop(['target'], axis=1);
+val_x = ohe.transform(val_x);
 
 df_test = pd.read_csv('./test.csv', header=0);
 df_test = df_test.drop(['id'], axis=1);
-xgb_test = xgb.DMatrix(df_test);
+df_test = ohe.transform(df_test);
 
 params={
 'booster':'gbtree',
@@ -45,13 +49,13 @@ params={
 };
 
 
-clf = xgb.XGBClassifier(learning_rate=0.1, n_estimators=100, min_child_weight=100, max_depth=15, reg_lambda=1);
+print('train_x.shape=' + str(train_x.shape));
+print('val_x.shape=' + str(val_x.shape));
+print('df_test.shape=' + str(df_test.shape));
+clf = xgb.XGBClassifier(learning_rate=0.05, n_estimators=100, min_child_weight=30, max_depth=15, reg_lambda=1, objective='binary:logistic');
 clf.fit(train_x, train_y, eval_set=[(train_x, train_y), (val_x, val_y)], eval_metric='mlogloss', early_stopping_rounds=5);
 
 preds = clf.predict_proba(df_test);
-
-for probs in preds:
-    probs = probs + min(probs);
 
 clf._Booster.dump_model('./xgb.model');
 
